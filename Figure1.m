@@ -1,0 +1,328 @@
+clc;
+clear;
+close all;
+load('J:\atlninowptc\twokindsnino\caeaindex.mat');
+load('J:\atlninowptc\twokindsnino\ninoindex.mat');
+load('J:\atlninowptc\twokindsnino\alt3index.mat')
+load('J:\atlninowptc\twokindsnino\cbar.mat');
+cani_2D=reshape(cani_1980,[12,45]);
+eani_2D=reshape(eani_1980,[12,45]);
+cani=mean(cani_2D(6:8,:),1);
+eani=mean(eani_2D(6:8,:),1);
+
+%%
+usalon0=ncread('J:\atlninowptc\IBTrACS.WP.v04r01.nc','usa_lon');
+usalat0=ncread('J:\atlninowptc\IBTrACS.WP.v04r01.nc','usa_lat');
+usawind0=ncread('J:\atlninowptc\IBTrACS.WP.v04r01.nc','usa_wind');
+usasshs0=ncread('J:\atlninowptc\IBTrACS.WP.v04r01.nc','usa_sshs');
+time=ncread('J:\atlninowptc\IBTrACS.WP.v04r01.nc','time');
+t0=datenum('1858-11-17 00:00:00')+time;
+for i=1:size(t0,2)
+    t(:,:,i)=datevec(squeeze(t0(:,i)));
+end
+
+%% %%%%%
+%%%%%%%%%%%%    cat1:64:82;cat2:83:95;cat3:96:112;cat4:113:136;cat5:137  %%%%%%%%%%%%%
+kk=0;
+for ii=1:size(usawind0,2)
+    [row,~]=find(usawind0(:,ii)>=34);
+    if ~isnan(row)
+        if t(row(1),1,ii)>1979&&t(row(1),1,ii)<2025
+            if t(row(1),2,ii)>5&&t(row(1),2,ii)<9
+                %                if max(usawind0(:,ii))<=95
+                kk=kk+1;
+                pos(kk)=ii;
+                %                 end
+            end
+        end
+    end
+    clear row
+end
+%%
+usalon_all=usalon0(:,pos);
+usalat_all=usalat0(:,pos);
+usawind_all=usawind0(:,pos);
+t8022_all=t(:,:,pos);
+t08022_all=t0(:,pos);
+
+%%  tc frequency
+for ii=1:size(usawind_all,2)
+    posi=find(usawind_all(:,ii)>=34);
+    t_year(ii)=t8022_all(posi(1,1),1,ii);
+    lat_ge(ii)=usalat_all(posi(1,1),ii);
+    lon_ge(ii)=usalon_all(posi(1,1),ii);
+    clear posi;
+end
+%%
+% lon：
+lon_edges = 100:3:180;
+% lat：
+lat_edges = 0:3:40;
+
+%% 2. years
+years = 1980:2024;
+n_years = length(years);
+
+%% 3. grid
+n_lon = length(lon_edges) - 1;  
+n_lat = length(lat_edges) - 1;  
+
+% 
+TC_count = zeros(n_lon, n_lat, n_years);
+
+%% 4.  TC frequency
+for i = 1:n_years
+    current_year = years(i);
+ 
+    idx = find(t_year == current_year);
+
+
+    lon_temp = lon_ge(idx);
+    lat_temp = lat_ge(idx);
+
+    [N, ~, ~] = histcounts2(lon_temp, lat_temp, lon_edges, lat_edges);
+
+    TC_count0(:,:,i) = N;
+
+%     % smooth
+    kernel = fspecial('gaussian', [3 3], 1);  % 3x3 
+    TC_count1(:,:,i) = conv2(TC_count0(:,:,i), kernel, 'same');   
+end
+%% detrend
+for ii=1:size(TC_count1,1)
+    for jj=1:size(TC_count1,2)
+        TC_count(ii,jj,:)=detrend(squeeze(TC_count1(ii,jj,:)));
+    end
+end
+
+%% TC corr index 
+for i = 1:n_lon
+    for j = 1:n_lat
+        [R_CA, P_CA] = corr(squeeze(TC_count(i,j,:)), cani', 'Rows','complete');
+        [R_EA, P_EA] = corr(squeeze(TC_count(i,j,:)), eani', 'Rows','complete');
+        [R_atl, P_atl] = corr(squeeze(TC_count(i,j,:)), atl3_index, 'Rows','complete');
+        corr_CA(i,j) = R_CA;
+        pal_CA(i,j) = P_CA;
+        corr_EA(i,j) = R_EA;
+        pal_EA(i,j) = P_EA;
+        corr_atl(i,j) = R_atl;
+        pal_atl(i,j) = P_atl;
+
+    end
+end
+
+
+%% %% TC partialcorr index
+
+for i = 1:n_lon
+    for j = 1:n_lat
+        [parR_CA, parP_CA] = partialcorr(squeeze(TC_count(i,j,:)), cani', sst_jja_nino34);
+        [parR_EA, parP_EA] = partialcorr(squeeze(TC_count(i,j,:)), eani', sst_jja_nino34);
+        [parR_atl, parP_atl] = partialcorr(squeeze(TC_count(i,j,:)), atl3_index, sst_jja_nino34);
+        par_corr_CA(i,j) = parR_CA;
+        par_pal_CA(i,j) = parP_CA;
+        par_corr_EA(i,j) = parR_EA;
+        par_pal_EA(i,j) = parP_EA;
+        par_corr_atl(i,j) = parR_atl;
+        par_pal_atl(i,j) = parP_atl;
+
+    end
+end
+
+%%
+lon_center = (lon_edges(1:end-1) + lon_edges(2:end))/2; % 1×16
+lat_center = (lat_edges(1:end-1) + lat_edges(2:end))/2; % 1×8
+[LON, LAT] = meshgrid(lon_center, lat_center);          % 8×16
+
+%% figure
+figure;
+set(gcf,'position',[50,50,605,450]);
+m_proj('miller', 'lon', [100 180], 'lat', [0 40]);
+m_pcolor(LON, LAT, corr_CA');
+caxis([-0.5 0.5]);  
+hold on;
+
+lon_ca=LON'+1.5;
+lat_ca=LAT'+1.5;
+lon_ca(pal_CA>0.1)=nan;
+lat_ca(pal_CA>0.1)=nan;
+lon_ca(isnan(pal_CA))=nan;
+lat_ca(isnan(pal_CA))=nan;
+
+for i=1:n_lon
+    for j=1:n_lat
+        m_plot(lon_ca(i,j),lat_ca(i,j),'k.','MarkerSize', 16);
+    end
+end
+m_coast('patch', [.7 .7 .7], 'edgecolor', 'none');
+m_grid('linestyle', 'none', 'tickdir', 'in', 'linewidth', 1, ...
+    'xtick', 100:20:180, 'ytick', 0:10:40,...
+    'FontSize',20,'FontWeight','bold');
+colorbar('southoutside','FontSize',20);
+title('TC Genesis (CANI)','FontSize',25,'FontWeight','bold');
+
+figure;
+set(gcf,'position',[50,50,605,450]);
+m_proj('miller', 'lon', [100 180], 'lat', [0 40]);
+
+m_pcolor(LON, LAT, corr_EA');
+colormap(color_map);   
+caxis([-0.5 0.5]);  
+hold on;
+lon_ea=LON'+1.5;
+lat_ea=LAT'+1.5;
+lon_ea(pal_EA>0.1)=nan;
+lat_ea(pal_EA>0.1)=nan;
+lon_ea(isnan(pal_EA))=nan;
+lat_ea(isnan(pal_EA))=nan;
+
+for i=1:n_lon
+    for j=1:n_lat
+        m_plot(lon_ea(i,j),lat_ea(i,j),'k.','MarkerSize', 16);
+    end
+end
+
+m_coast('patch', [.7 .7 .7], 'edgecolor', 'none');
+m_grid('linestyle', 'none', 'tickdir', 'in', 'linewidth', 1, ...
+    'xtick', 100:20:180, 'ytick', 0:10:40,...
+    'FontSize',20,'FontWeight','bold');
+colorbar('southoutside','FontSize',20);
+title('TC Genesis (EANI)','FontSize',25,'FontWeight','bold');
+
+figure;
+set(gcf,'position',[50,50,605,450]);
+m_proj('miller', 'lon', [100 180], 'lat', [0 40]);
+
+m_pcolor(LON, LAT, corr_atl');
+colormap(color_map);   
+caxis([-0.5 0.5]);  
+hold on;
+lon_ea=LON'+1.5;
+lat_ea=LAT'+1.5;
+lon_ea(pal_atl>0.1)=nan;
+lat_ea(pal_atl>0.1)=nan;
+lon_ea(isnan(pal_atl))=nan;
+lat_ea(isnan(pal_atl))=nan;
+
+for i=1:n_lon
+    for j=1:n_lat
+        m_plot(lon_ea(i,j),lat_ea(i,j),'k.','MarkerSize', 16);
+    end
+end
+
+m_coast('patch', [.7 .7 .7], 'edgecolor', 'none');
+m_grid('linestyle', 'none', 'tickdir', 'in', 'linewidth', 1, ...
+    'xtick', 100:20:180, 'ytick', 0:10:40,...
+    'FontSize',20,'FontWeight','bold');
+colorbar('southoutside','FontSize',20);
+title('TC Genesis (ATL3)','FontSize',25,'FontWeight','bold');
+figure;
+set(gcf,'position',[50,50,605,450]);
+m_proj('miller', 'lon', [100 180], 'lat', [0 40]);
+
+m_pcolor(LON, LAT, par_corr_CA');
+% color_map=colormap(flipud(usingNCLcolor('MPL_RdBu'))); 
+% start_idx = 35;
+% end_idx = 93;
+
+% n = end_idx - start_idx + 1;
+% x = linspace(0, 1, n);
+% fade_factor = 0.6 * (1 - (2*x - 1).^4); 
+
+% for i = start_idx:end_idx
+%     idx = i - start_idx + 1;
+%     alpha = fade_factor(idx);
+%     
+
+%     color_map(i, :) = (1 - alpha) * color_map(i, :) + alpha * [1, 1, 1];
+% end
+colormap(color_map);
+caxis([-0.5 0.5]);  
+hold on;
+
+lon_ca=LON'+1.5;
+lat_ca=LAT'+1.5;
+lon_ca(par_pal_CA>0.1)=nan;
+lat_ca(par_pal_CA>0.1)=nan;
+lon_ca(isnan(par_pal_CA))=nan;
+lat_ca(isnan(par_pal_CA))=nan;
+
+for i=1:n_lon
+    for j=1:n_lat
+        m_plot(lon_ca(i,j),lat_ca(i,j),'k.','MarkerSize', 16);
+    end
+end
+m_coast('patch', [.7 .7 .7], 'edgecolor', 'none');
+m_grid('linestyle', 'none', 'tickdir', 'in', 'linewidth', 1, ...
+    'xtick', 100:20:180, 'ytick', 0:10:40,...
+    'FontSize',20,'FontWeight','bold');
+colorbar('southoutside','FontSize',20);
+title('TC Genesis (Partial Corr. CANI)','FontSize',25,'FontWeight','bold');
+
+figure;
+set(gcf,'position',[50,50,605,450]);
+m_proj('miller', 'lon', [100 180], 'lat', [0 40]);
+
+m_pcolor(LON, LAT, par_corr_EA');
+colormap(color_map);   
+caxis([-0.5 0.5]);  
+hold on;
+lon_ea=LON'+1.5;
+lat_ea=LAT'+1.5;
+lon_ea(par_pal_EA>0.1)=nan;
+lat_ea(par_pal_EA>0.1)=nan;
+lon_ea(isnan(par_pal_EA))=nan;
+lat_ea(isnan(par_pal_EA))=nan;
+
+for i=1:n_lon
+    for j=1:n_lat
+        m_plot(lon_ea(i,j),lat_ea(i,j),'k.','MarkerSize', 16);
+    end
+end
+
+m_coast('patch', [.7 .7 .7], 'edgecolor', 'none');
+m_grid('linestyle', 'none', 'tickdir', 'in', 'linewidth', 1, ...
+    'xtick', 100:20:180, 'ytick', 0:10:40,...
+    'FontSize',20,'FontWeight','bold');
+colorbar('southoutside','FontSize',20);
+title('TC Genesis (Partial Corr. EANI)','FontSize',25,'FontWeight','bold');
+
+
+
+figure;
+set(gcf,'position',[50,50,605,450]);
+m_proj('miller', 'lon', [100 180], 'lat', [0 40]);
+
+m_pcolor(LON, LAT, par_corr_atl');
+%colormap(flipud(usingNCLcolor('MPL_PRGn')));  
+colormap(color_map);   
+caxis([-0.5 0.5]); 
+hold on;
+lon_ea=LON'+1.5;
+lat_ea=LAT'+1.5;
+lon_ea(par_pal_atl>0.1)=nan;
+lat_ea(par_pal_atl>0.1)=nan;
+lon_ea(isnan(par_pal_atl))=nan;
+lat_ea(isnan(par_pal_atl))=nan;
+
+for i=1:n_lon
+    for j=1:n_lat
+        m_plot(lon_ea(i,j),lat_ea(i,j),'k.','MarkerSize', 16);
+    end
+end
+
+m_coast('patch', [.75 .75 .75], 'edgecolor', 'none');
+m_grid('linestyle', 'none', 'tickdir', 'in', 'linewidth', 1, ...
+    'xtick', 100:20:180, 'ytick', 0:10:40,...
+    'FontSize',20,'FontWeight','bold');
+cb=colorbar('southoutside','FontSize',18,'linewidth',1.0);
+set(cb, 'Ticks', -0.5:0.1:0.5); 
+set(cb, 'TickLabels', -0.5:0.1:0.5);
+
+cb.FontWeight = 'bold';  
+cb.FontName = 'Arial';   
+title('TC Genesis (Partial Corr. ATL3)','FontSize',25,'FontWeight','bold');
+
+
+
+
